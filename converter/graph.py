@@ -152,7 +152,7 @@ class Graph(object):
                     output_indexes = node.output_indexes
                     if len(output_indexes) < len(input_indexes):
                         input_name = node.inputs[0]
-                        subsample_name = input + '.subsample.' + node.name
+                        subsample_name = input_name + '.subsample.' + node.name
                         if subsample_name not in subsample_nodes:
                             subsample_inputs = [input_name]
                             attrs = {}
@@ -168,7 +168,7 @@ class Graph(object):
                             subsample_node = subsample_nodes[subsample_name]
                             if set(output_indexes) != \
                                     set(subsample_node.output_indexes):
-                                subsample_inputs = [input]
+                                subsample_inputs = [input_name]
                                 attrs = {}
                                 subsample_name = node.name + subsample_name
                                 subsample_node = \
@@ -390,15 +390,44 @@ class Graph(object):
         nodes_need_check = self._nodes[:]
 
         while len(nodes_need_check) > 0:
+            flag = False
             for node in nodes_need_check:
                 depend_inputs = [input for input in node.inputs
                                  if input not in node.consts]
-                if set(depend_inputs) <= set(checked_names)\
+                # remove dropout mask layer input
+                for input in node.inputs:
+                    if 'dropout_mask' in input:
+                        node.inputs.remove(input)
+                # remove dropout layer
+                if 'dropout_mask' in node.name:
+                    nodes_need_check.remove(node)
+                    continue
+                if set(depend_inputs) <= set(checked_names) \
                         or (node.type == KaldiOpType.IfDefined.name
                             and ifdefine and 'IfDefined' in node.inputs[0]):
                     updated_nodes.append(node)
                     checked_names.append(node.name)
                     nodes_need_check.remove(node)
+                    flag = True
+
+            if not flag:
+                print("[Error]: can not find input for unchecked node")
+                print("Unchecked node({}):".format(len(nodes_need_check)))
+                dependent_inputs = set()
+                for node in nodes_need_check:
+                    for input in node.inputs:
+                        dependent_inputs.add(input)
+                        depend_inputs = [input for input in node.inputs
+                                         if input not in node.consts]
+                        node.info()
+                        intersection = set(depend_inputs) & set(checked_names)
+                        print("intersection = {}".format(intersection))
+                        print("value not in checked name = {}".format(set(depend_inputs) - intersection))
+                print("dependent inputs = {}".format(set(dependent_inputs) - set(checked_names)))
+                print("Checked node({}):".format(len(updated_nodes)))
+                print("current component = {}".format(checked_names))
+                exit(1)
+
         self._nodes = updated_nodes
         for node in self._nodes:
             del node.nexts[:]
